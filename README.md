@@ -1,5 +1,5 @@
-# No longer maintained
-As I have new water meter (lora enabled), this project is no longer maintained by me. Feel free to fork it and develop further. 
+# Forked and a few improments added
+Forked from the project https://github.com/neutrinus/everblu-meters - many thanks to the progenitors who led this here.
 
 # everblu-meters - Water usage data for Home Assistant
 Fetch water/gas usage data from Cyble EverBlu meters using RADIAN protocol on 433Mhz. Integrated with Home Assistant via MQTT. 
