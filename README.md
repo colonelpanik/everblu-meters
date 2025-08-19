@@ -9,6 +9,12 @@ Note: HASS autodiscovery is still missing, during development.
 Meters supported:
 - Itron EverBlu Cyble Enhanced
 
+# WARNING!!!
+
+Others have noted that the everblu meter will retain a count of *total number of queries* against the meter. Some water companies do not know what is happening when this number increases at a fast rate and will assume the meter has gone bad and replace it.
+
+## Battery
+The meter has an internal battery, which should last for 10 years when queried once a day. See reports here - https://community.home-assistant.io/t/reading-itron-everblu-cyble-rf-enhanced-water-meter-with-esp32-esp8266-and-433mhz-cc1101-home-assistant-mqtt-autodiscovery-now-with-rssi-and-more/833180
 
 ## Hardware
 ![Raspberry Pi Zero with CC1101](board.jpg)
@@ -31,26 +37,21 @@ The project runs on Raspberry Pi with an RF transreciver (CC1101).
 3. Install libmosquitto-dev: `apt install libmosquitto-dev`
 4. Set meter serial number and production date in `everblu_meters.c`, it can be found on the meter label itself:
 ![Cyble Meter Label](meter_label.png)
-5. Configure MQTT connection details in `everblu_meters.c`: `MQTT_HOST`, `MQTT_USER`, 'MQTT_PASS`
-5. Compile the code with `make`
-6. Run `everblu_meters`, after ~2s your meter data should be on the screen and data should be pushed to MQTT.
-7. Setup crontab to run it twice a day
+5. Configure MQTT connection details in your config file: `MQTT_HOST`, `MQTT_USER`, `MQTT_PASS`, `METER_YEAR` and `METER_SERIAL` (Note - the mqtt user information would be a user and their password in Home Assistant. You can limit rights to make this more secure so do not use your own user.) Make sure this config file is in a secure location!
+6. Compile the code with `make`
+7. Run `everblu_meters /path/to/config.file`, after ~2s your meter data should be on the screen and data should be pushed to MQTT.
+8. Setup crontab to run it twice a day
 
 ## Troubleshooting
 
 ### Frequency adjustment
 Your transreciver module may be not calibrated correctly, please modify frequency a bit lower or higher and try again. You may use RTL-SDR to measure the offset needed.
 
-
 ### Business hours
-Your meter may be configured in such a way that is listens for request only during hours when data collectors work - to conserve energy. If you are unable to communicate with the meter, please try again during business hours (8-16).
+Your meter may be configured in such a way that ts listens for request only during hours when data collectors work (to conserve energy). If you are unable to communicate with the meter, please try again during business hours (between 8 AM -> 4 PM).
 
 ### Serial number starting with 0
 Please ignore the leading 0, provide serial in configuration without it.
-
-
-### Save power
-The meter has internal battery, which should last for 10 years when queried once a day. 
 
 ## Origin and license
 
