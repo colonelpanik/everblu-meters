@@ -9,6 +9,17 @@ Note: HASS autodiscovery is still missing, during development.
 Meters supported:
 - Itron EverBlu Cyble Enhanced
 
+<<<<<<< Updated upstream
+=======
+# WARNING!!!
+
+Others have noted that the everblu meter will retain a count of *total number of queries* against the meter. Some water companies do not know what is happening when this number increases at a fast rate and will assume the meter has gone bad and replace it.
+
+See reports here - https://community.home-assistant.io/t/reading-itron-everblu-cyble-rf-enhanced-water-meter-with-esp32-esp8266-and-433mhz-cc1101-home-assistant-mqtt-autodiscovery-now-with-rssi-and-more/833180
+
+## Battery
+The meter has an internal battery, which should last for 10 years when queried once a day. 
+>>>>>>> Stashed changes
 
 ## Hardware
 ![Raspberry Pi Zero with CC1101](board.jpg)
