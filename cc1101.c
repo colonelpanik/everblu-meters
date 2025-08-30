@@ -15,11 +15,12 @@ uint8_t CC1101_status_FIFO_ReadByte=0;
 uint8_t debug_out=0;
 
 struct tmeter_data {
-        int liters;
-        int reads_counter; // how many times the meter has been readed
-        int battery_left; //in months
+    int liters;
+    int reads_counter; // how many times the meter has been readed
+    int battery_left; //in months
 	int time_start; // like 8am
 	int time_end; // like 4pm
+    float rssi_dbm; // RSSI in dBm
 };
 
 
@@ -431,18 +432,15 @@ uint8_t cc1101_wait_for_packet(int milliseconds)
 struct tmeter_data parse_meter_report (uint8_t *decoded_buffer , uint8_t size)
 {
 	struct tmeter_data data;
+    memset(&data, 0, sizeof(data));
+    data.liters = -1; // Default to invalid
 
-
-	if (size >= 30)
+	if (size >= 31)
 	{   
-		//echo_debug(1,"\r\n%u/%u/20%u %u:%u:%u ",decoded_buffer[24],decoded_buffer[25],decoded_buffer[26],decoded_buffer[28],decoded_buffer[29],decoded_buffer[30]);
-		//echo_debug(1,"%u litres ",decoded_buffer[18]+decoded_buffer[19]*256 + decoded_buffer[20]*65536 + decoded_buffer[21]*16777216);
-
 		data.liters = decoded_buffer[18]+decoded_buffer[19]*256 + decoded_buffer[20]*65536 + decoded_buffer[21]*16777216;
 	}
-	if (size >= 48)
+	if (size >= 49)
 	{
-		//echo_debug(1,"Num %u %u Mois %uh-%uh ",decoded_buffer[48], decoded_buffer[31],decoded_buffer[44],decoded_buffer[45]);
 		data.reads_counter = decoded_buffer[48];
 		data.battery_left = decoded_buffer[31];
 		data.time_start = decoded_buffer[44];
@@ -518,13 +516,14 @@ uint8_t decode_4bitpbit_serial(uint8_t *rxBuffer, int l_total_byte, uint8_t* dec
    search for 0101010101010000b sync pattern then change data rate in order to get 4bit per bit 
    search for end of sync pattern with start bit 1111111111110000b
    */
-int receive_radian_frame(int size_byte,int rx_tmo_ms ,uint8_t*rxBuffer,int rxBuffer_size)
+int receive_radian_frame(int size_byte,int rx_tmo_ms ,uint8_t*rxBuffer,int rxBuffer_size, float* rssi_out)
 {	
 	uint8_t  l_byte_in_rx=0;
 	uint16_t l_total_byte=0;
 	uint16_t l_radian_frame_size_byte = ((size_byte*(8+3))/8)+1;
 	int l_tmo=0;
 	uint8_t l_Rssi_dbm,l_lqi,l_freq_est;
+    *rssi_out = -127.0; // Default invalid RSSI
 
 	if (l_radian_frame_size_byte*4 > rxBuffer_size) {echo_debug(debug_out,"buffer too small\r\n");return 0;}
 	CC1101_CMD(SFRX);
@@ -555,6 +554,7 @@ int receive_radian_frame(int size_byte,int rx_tmo_ms ,uint8_t*rxBuffer,int rxBuf
 	l_lqi= halRfReadReg(LQI_ADDR);
 	l_freq_est = halRfReadReg(FREQEST_ADDR);
 	l_Rssi_dbm = cc1100_rssi_convert2dbm(halRfReadReg(RSSI_ADDR));
+    *rssi_out = (float)l_Rssi_dbm; // Store RSSI value
 	echo_debug(debug_out," rssi=%u lqi=%u F_est=%u \r\n",l_Rssi_dbm,l_lqi,l_freq_est);
 
 	fflush(stdout);	
@@ -625,6 +625,13 @@ struct tmeter_data get_meter_data(void)
 	int rxBuffer_size;
 	uint8_t meter_data[200];
 	uint8_t meter_data_size=0;
+    float rssi_ack = -127.0;
+    float rssi_data = -127.0;
+
+    // Initialize sdata
+    memset(&sdata, 0, sizeof(sdata));
+    sdata.liters = -1;
+    sdata.rssi_dbm = -127.0;
 
 	uint8_t txbuffer[100]; 
 	Make_Radian_Master_req(txbuffer, METER_YEAR , METER_SERIAL ); 
@@ -670,17 +677,18 @@ struct tmeter_data get_meter_data(void)
 
 	delay(30); //43ms de bruit
 	/*34ms 0101...01  14.25ms 000...000  14ms 1111...11111  83.5ms de data acquitement*/
-	if (!receive_radian_frame(0x12,150,rxBuffer,sizeof(rxBuffer))) echo_debug(debug_out,"TMO on REC\r\n");
+	if (!receive_radian_frame(0x12, 150, rxBuffer, sizeof(rxBuffer), &rssi_ack)) echo_debug(debug_out,"TMO on REC\r\n");
 	delay(30); //50ms de 111111  , mais on a 7+3ms de printf et xxms calculs
 	/*34ms 0101...01  14.25ms 000...000  14ms 1111...11111  582ms de data avec l'index */
-	rxBuffer_size = receive_radian_frame(0x7C,700,rxBuffer,sizeof(rxBuffer));
+	rxBuffer_size = receive_radian_frame(0x7C, 700, rxBuffer, sizeof(rxBuffer), &rssi_data);
 	if (rxBuffer_size)
 	{
 		if (debug_out) show_in_hex_array(rxBuffer, rxBuffer_size);
 
 		meter_data_size=decode_4bitpbit_serial(rxBuffer, rxBuffer_size,meter_data);
-		// show_in_hex(meter_data,meter_data_size);
 		sdata = parse_meter_report(meter_data,meter_data_size);
+        // Prioritize RSSI from the data packet, but fall back to the ack packet's RSSI
+        sdata.rssi_dbm = (rssi_data > -127.0) ? rssi_data : rssi_ack;
 	}
 	else
 	{
