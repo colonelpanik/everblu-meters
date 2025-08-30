@@ -1,14 +1,7 @@
 /*
  * everblu_meters.c - Enhanced MQTT and Home Assistant Integration
- * Merged features from ESP32 project into the Raspberry Pi C implementation.
- *
- * This version adds:
- * - Home Assistant MQTT Auto-Discovery for all sensors.
- * - Publishes additional metrics: Battery, Read Counter, RSSI, and Meter Active Times.
- * - Publishes a timestamp for each reading.
- * - Uses a structured MQTT topic scheme.
- * - The core meter reading logic from the original raspberry-pi-blu.txt remains unchanged as requested.
- */
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <mosquitto.h>
@@ -37,7 +30,7 @@ struct MosquittoUserData {
 };
 
 // Global config variable to be accessible by the included cc1101.c
-struct AppConfig config; 
+struct AppConfig config;
 #define METER_YEAR config.meter_year
 #define METER_SERIAL config.meter_serial
 #define MQTT_KEEP_ALIVE 60
@@ -90,6 +83,18 @@ void parse_config(const char *filename, struct AppConfig *config)
     fclose(file);
 }
 
+// Helper function to publish a message and check for errors
+void publish_mqtt(struct mosquitto *mosq, const char *topic, const char *payload, bool retain) {
+    // Use QoS 0 for reliability in short-lived scripts, and set retain flag.
+    int rc = mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 0, retain);
+    if (rc != MOSQ_ERR_SUCCESS) {
+        fprintf(stderr, "Error publishing to topic %s: %s\n", topic, mosquitto_strerror(rc));
+    } else {
+        printf("Published to %s: %s\n", topic, payload);
+    }
+}
+
+
 void publish_hass_autodiscovery(struct mosquitto *mosq, struct MosquittoUserData *ud) {
     char topic[256];
     char payload[1024];
@@ -110,7 +115,7 @@ void publish_hass_autodiscovery(struct mosquitto *mosq, struct MosquittoUserData
         "\"unit_of_meas\":\"L\",\"dev_cla\":\"water\",\"stat_cla\":\"total_increasing\","
         "\"stat_t\":\"%s/liters\",%s,%s}",
         ud->device_name, ud->meter_id, ud->base_topic, avail_str, device_str);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, true);
+    publish_mqtt(mosq, topic, payload, true);
 
     // 2. Battery Sensor
     snprintf(topic, sizeof(topic), "homeassistant/sensor/%s_battery/config", ud->meter_id);
@@ -118,7 +123,7 @@ void publish_hass_autodiscovery(struct mosquitto *mosq, struct MosquittoUserData
         "{\"name\":\"%s Battery\",\"uniq_id\":\"%s_battery\",\"dev_cla\":\"battery\","
         "\"unit_of_meas\":\"Months\",\"stat_t\":\"%s/battery\",\"ent_cat\":\"diagnostic\",%s,%s}",
         ud->device_name, ud->meter_id, ud->base_topic, avail_str, device_str);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, true);
+    publish_mqtt(mosq, topic, payload, true);
 
     // 3. RSSI Sensor
     snprintf(topic, sizeof(topic), "homeassistant/sensor/%s_rssi/config", ud->meter_id);
@@ -126,23 +131,23 @@ void publish_hass_autodiscovery(struct mosquitto *mosq, struct MosquittoUserData
         "{\"name\":\"%s RSSI\",\"uniq_id\":\"%s_rssi\",\"dev_cla\":\"signal_strength\","
         "\"unit_of_meas\":\"dBm\",\"stat_t\":\"%s/rssi_dbm\",\"ent_cat\":\"diagnostic\",%s,%s}",
         ud->device_name, ud->meter_id, ud->base_topic, avail_str, device_str);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, true);
-
+    publish_mqtt(mosq, topic, payload, true);
+    
     // 4. Counter Sensor
     snprintf(topic, sizeof(topic), "homeassistant/sensor/%s_counter/config", ud->meter_id);
     snprintf(payload, sizeof(payload),
         "{\"name\":\"%s Read Counter\",\"uniq_id\":\"%s_counter\",\"ic\":\"mdi:counter\","
         "\"stat_t\":\"%s/counter\",\"ent_cat\":\"diagnostic\",%s,%s}",
         ud->device_name, ud->meter_id, ud->base_topic, avail_str, device_str);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, true);
-
+    publish_mqtt(mosq, topic, payload, true);
+        
     // 5. Time Start Sensor
     snprintf(topic, sizeof(topic), "homeassistant/sensor/%s_time_start/config", ud->meter_id);
     snprintf(payload, sizeof(payload),
         "{\"name\":\"%s Wake Time\",\"uniq_id\":\"%s_time_start\",\"ic\":\"mdi:timer-sand\","
         "\"stat_t\":\"%s/time_start\",\"ent_cat\":\"diagnostic\",%s,%s}",
         ud->device_name, ud->meter_id, ud->base_topic, avail_str, device_str);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, true);
+    publish_mqtt(mosq, topic, payload, true);
 
     // 6. Time End Sensor
     snprintf(topic, sizeof(topic), "homeassistant/sensor/%s_time_end/config", ud->meter_id);
@@ -150,8 +155,8 @@ void publish_hass_autodiscovery(struct mosquitto *mosq, struct MosquittoUserData
         "{\"name\":\"%s Sleep Time\",\"uniq_id\":\"%s_time_end\",\"ic\":\"mdi:timer-sand-off\","
         "\"stat_t\":\"%s/time_end\",\"ent_cat\":\"diagnostic\",%s,%s}",
         ud->device_name, ud->meter_id, ud->base_topic, avail_str, device_str);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, true);
-
+    publish_mqtt(mosq, topic, payload, true);
+        
     printf("Published Home Assistant auto-discovery configurations.\n");
 }
 
@@ -166,7 +171,7 @@ void my_connect_callback(struct mosquitto *mosq, void *userdata, int result)
         
         char status_topic[256];
         snprintf(status_topic, sizeof(status_topic), "%s/status", ud->base_topic);
-        mosquitto_publish(mosq, NULL, status_topic, strlen("online"), "online", 1, true);
+        publish_mqtt(mosq, status_topic, "online", true);
 	}
 	else
 	{
@@ -225,7 +230,7 @@ int main(int argc, char *argv[])
 
     char status_topic[256];
     snprintf(status_topic, sizeof(status_topic), "%s/status", userdata.base_topic);
-    mosquitto_will_set(mosq, status_topic, strlen("offline"), "offline", 1, true);
+    mosquitto_will_set(mosq, status_topic, strlen("offline"), "offline", 0, true);
 
 	if(mosquitto_connect(mosq, config.mqtt_host, config.mqtt_port, MQTT_KEEP_ALIVE)) {
 		fprintf(stderr, "ERROR: Unable to connect to MQTT broker.\n");
@@ -236,6 +241,9 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "ERROR: failed to start mosquitto loop.\n");
 		return 1;
 	}
+    
+    // Give time for connection and discovery messages to be sent
+    sleep(2);
 
     // --- Read Meter ---
 	IO_init();
@@ -257,43 +265,44 @@ int main(int argc, char *argv[])
     printf("Read Counter: %d\n", meter_data.reads_counter);
     printf("RSSI: %.2f dBm\n", meter_data.rssi_dbm);
     printf("Wake/Sleep: %02d:00 - %02d:00\n", meter_data.time_start, meter_data.time_end);
-    printf("---------------------------\n");
+    printf("---------------------------\n\n");
+    printf("--- Publishing to MQTT ---\n");
 
     char topic[256];
     char payload[64];
 
     snprintf(topic, sizeof(topic), "%s/liters", userdata.base_topic);
     snprintf(payload, sizeof(payload), "%d", meter_data.liters);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, false);
+    publish_mqtt(mosq, topic, payload, true);
 
     snprintf(topic, sizeof(topic), "%s/battery", userdata.base_topic);
     snprintf(payload, sizeof(payload), "%d", meter_data.battery_left);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, false);
+    publish_mqtt(mosq, topic, payload, true);
 
     snprintf(topic, sizeof(topic), "%s/counter", userdata.base_topic);
     snprintf(payload, sizeof(payload), "%d", meter_data.reads_counter);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, false);
+    publish_mqtt(mosq, topic, payload, true);
 
     snprintf(topic, sizeof(topic), "%s/rssi_dbm", userdata.base_topic);
     snprintf(payload, sizeof(payload), "%.2f", meter_data.rssi_dbm);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, false);
+    publish_mqtt(mosq, topic, payload, true);
 
     snprintf(topic, sizeof(topic), "%s/time_start", userdata.base_topic);
     snprintf(payload, sizeof(payload), "%02d:00", meter_data.time_start);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, false);
+    publish_mqtt(mosq, topic, payload, true);
 
     snprintf(topic, sizeof(topic), "%s/time_end", userdata.base_topic);
     snprintf(payload, sizeof(payload), "%02d:00", meter_data.time_end);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, false);
+    publish_mqtt(mosq, topic, payload, true);
 
     time_t t = time(NULL);
     strftime(payload, sizeof(payload), "%Y-%m-%dT%H:%M:%S%z", localtime(&t));
     snprintf(topic, sizeof(topic), "%s/timestamp", userdata.base_topic);
-    mosquitto_publish(mosq, NULL, topic, strlen(payload), payload, 1, false);
+    publish_mqtt(mosq, topic, payload, true);
     
-    printf("Published all meter data to MQTT.\n");
+    printf("---------------------------\n");
 
-	sleep(2); // Give MQTT time to send before exiting
+	sleep(3); // Give MQTT time to send all messages before exiting
 
 	mosquitto_disconnect(mosq);
     mosquitto_loop_stop(mosq, true);
